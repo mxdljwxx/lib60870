@@ -16,7 +16,8 @@
 #include "hal_time.h"
 
 static bool running = true;
-
+#define localserial  false
+#define DEBUG_SOCKET true
 
 // meter data collet 645-2007 begin ------lhq 2018-10-16
 
@@ -93,10 +94,16 @@ struct ddb{
         uint8_t dataBits;
         char parity[3];
         uint8_t stopBits;
-        SerialPort port;
+	#if localserial
+	SerialPort port;
+	#else
+        Socket port;
+	#endif
 	uint8_t pt;
 	uint8_t ct;
 	bool isopen;
+	char ipadd[16];
+	int  ipport;
 };
 
 struct ddb ddblist[BSH];
@@ -178,8 +185,14 @@ initddb2(struct ddb * ddbl,int shu){
 	while(fgets(fileline,MAXLINE-1,fd2)!=0 && !feof(fd2) && i<BSH){
 
  	printf("get line is %s\n",fileline);
-	i2=sscanf(fileline,"%s %s %s %s %s %s %d %u %s %u %u %u",ddbl[i].xh,ddbl[i].changm,ddbl[i].stationame,s1,ddbl[i].protname,ddbl[i].serialname,&ddbl[i].baudRate,&ddbl[i].dataBits,ddbl[i].parity,&ddbl[i].stopBits,&ddbl[i].pt,&ddbl[i].ct);
+	#if localserial
+		i2=sscanf(fileline,"%s %s %s %s %s %s %d %u %s %u %u %u",ddbl[i].xh,ddbl[i].changm,ddbl[i].stationame,s1,ddbl[i].protname,ddbl[i].serialname,&ddbl[i].baudRate,&ddbl[i].dataBits,ddbl[i].parity,&ddbl[i].stopBits,&ddbl[i].pt,&ddbl[i].ct);
  	printf("%s\n%s\n%s\n%s\n%s\n%s\n%d\n%u\n%s\n%u\n%u\n%d\n",ddbl[i].xh,ddbl[i].changm,ddbl[i].stationame,s1,ddbl[i].protname,ddbl[i].serialname,ddbl[i].baudRate,ddbl[i].dataBits,ddbl[i].parity,ddbl[i].stopBits,ddbl[i].pt,ddbl[i].ct);
+	#else
+		i2=sscanf(fileline,"%s %s %s %s %s %s %d %u %s %u %u %u %s %d",ddbl[i].xh,ddbl[i].changm,ddbl[i].stationame,s1,ddbl[i].protname,ddbl[i].serialname,&ddbl[i].baudRate,&ddbl[i].dataBits,ddbl[i].parity,&ddbl[i].stopBits,&ddbl[i].pt,&ddbl[i].ct,ddbl[i].ipadd,&ddbl[i].ipport);
+ 	printf("%s\n%s\n%s\n%s\n%s\n%s\n%d\n%u\n%s\n%u\n%u\n%u\n%s\n%d\n",ddbl[i].xh,ddbl[i].changm,ddbl[i].stationame,s1,ddbl[i].protname,ddbl[i].serialname,ddbl[i].baudRate,ddbl[i].dataBits,ddbl[i].parity,ddbl[i].stopBits,ddbl[i].pt,ddbl[i].ct,ddbl[i].ipadd,ddbl[i].ipport);
+	
+	#endif
 	// meterno asylia
 	for(j=0;j<6;j++){
 	ddbl[i].meterno[j]=atoi(mysubstr(s1,j*2,2));
@@ -197,8 +210,11 @@ initddb2(struct ddb * ddbl,int shu){
 
 
 
-
+#if localserial
 static bool ws_get_pulse(SerialPort self,BYTE *meter_no, WORD data_noh,WORD data_nol, int32_t *p_val)
+#else
+static bool ws_get_pulse(Socket self,BYTE *meter_no, WORD data_noh,WORD data_nol, int32_t *p_val)
+#endif
 {
 	printf("enter serail ws_get_pulse!\n");
 	WORD wLow, wMi,wHi,wHHi;
@@ -224,7 +240,12 @@ static bool ws_get_pulse(SerialPort self,BYTE *meter_no, WORD data_noh,WORD data
 
 	//for(int8_t j=0;j<18;j++)
 	//  printf("sendbuf is %02x\n",m_tx_buf[j]);
-        sendbyte=SerialPort_write(self, m_tx_buf, 0, 16);
+        #if localserial
+	sendbyte=SerialPort_write(self, m_tx_buf, 0, 16);
+	#else
+	sendbyte=Socket_write(self, m_tx_buf, 16);
+	#endif
+
 	if(sendbyte==16){
 	printf("serial send succs!\n");
 	}
@@ -233,19 +254,27 @@ static bool ws_get_pulse(SerialPort self,BYTE *meter_no, WORD data_noh,WORD data
 	   return FALSE;
 	}
         PSLEEP;
-
-    revbyte=SerialPort_readByte(self);
-
+        #if localserial 
+        revbyte=SerialPort_readByte(self);
   	if (revbyte== -1){
 	    printf("rev fail!\n");
 	    return FALSE;
 	}
-    i=0;
+        i=0;
 	while(revbyte!=-1){
 	m_rx_buf[i]=revbyte;
 	i=i+1;
 	revbyte=SerialPort_readByte(self);
 	}
+        #else
+	i=Socket_read(self,m_rx_buf,UART_PACKET_SIZE);
+  	if (i== -1){
+	    printf("rev fail!\n");
+	    return FALSE;
+	}
+
+	#endif
+
     printf("revbuf  %d  is  ",i);
     for(int8_t j=0;j<i;j++)
 	    printf("%02x  ",m_rx_buf[j]);
@@ -304,8 +333,11 @@ void* meter_acq()
     signal(SIGINT, sigint_handler);
     uint8_t i=0,j,k;
     bool comok;
-    SerialPort port1;
-       
+    #if localserial
+    	SerialPort port1;
+    #else
+	Socket port1;
+    #endif   	
   //  int32_t *ycb=yctable;
    // uint32_t *ymb=ymtable;
 /*
@@ -321,17 +353,33 @@ void* meter_acq()
 
     for(i=0;i<BSH;i++){ 
     //SerialPort port = SerialPort_create(serialPort, 2400, 8, 'E', 1);
-    port1 = SerialPort_create(ddblist[i].serialname,ddblist[i].baudRate,ddblist[i].dataBits,*ddblist[i].parity,ddblist[i].stopBits);
+    #if localserial
+    	port1 = SerialPort_create(ddblist[i].serialname,ddblist[i].baudRate,ddblist[i].dataBits,*ddblist[i].parity,ddblist[i].stopBits);
     //port1 = SerialPort_create(ddblist[i].serialname,ddblist[i].baudRate,ddblist[i].dataBits,'E',ddblist[i].stopBits);
-    if(SerialPort_open(port1))
-     {
+    	if(SerialPort_open(port1))
+     	{
 	 ddblist[i].port=port1;
          ddblist[i].isopen=true;
          printf("serail port is creat!\n");
-     }else{
+     	}else{
          ddblist[i].isopen=false;
          printf("serail port is fail!\n");
-    }
+    	}
+    #else
+	printf("enter tcp connect!\n");
+    	port1=TcpSocket_create();
+	if(Socket_connect(port1,ddblist[i].ipadd,ddblist[i].ipport))
+     	{
+         printf("tcp port is open!\n");
+	 ddblist[i].port=port1;
+         ddblist[i].isopen=true;
+         printf("tcp port is creat!\n");
+     	}else{
+         ddblist[i].isopen=false;
+         printf("tcp port is fail!\n");
+    	}
+    #endif 
+
     }
 
     //comok=true;
@@ -416,11 +464,15 @@ void* meter_acq()
   { 
   if(ddblist[i].isopen==true)
   {
-  SerialPort_close(ddblist[i].port);
-  printf("serial port is close!\n");
-  }
-  SerialPort_destroy(ddblist[i].port);
+  #if localserial
+  	SerialPort_close(ddblist[i].port);
+  	printf("serial port is close!\n");
+  	SerialPort_destroy(ddblist[i].port);
+  #else
+  	Socket_destroy(ddblist[i].port);
+  #endif
   printf("serial port is destory!\n");
+  }
   }
   return 0;
 }
@@ -570,16 +622,16 @@ interrogationHandler(void* parameter, IMasterConnection connection, CS101_ASDU a
         CS101_ASDU newAsdu = CS101_ASDU_create(alParams, false,CS101_COT_REQUESTED_BY_GENERAL_COUNTER,
                 0, 1, false, false);
 
-        /*InformationObject io;
+        InformationObject io;
         for(uint8_t k=0;k<4;k++)
         {
-                io= (InformationObject) IntegratedTotals_create(io,YM_ADD+k,ymtable[k]);
+                io= (InformationObject) IntegratedTotals_create((IntegratedTotals)io,YM_ADD+k,(BinaryCounterReading)&ymtable[k]);
                 CS101_ASDU_addInformationObject(newAsdu, io);
         }
         InformationObject_destroy(io);
 
         IMasterConnection_sendASDU(connection, newAsdu);
-        */
+       
         CS101_ASDU_destroy(newAsdu);
 	
 	}else{
@@ -675,7 +727,7 @@ server104()
 
 
     /*lhq 2018-10-15 add tcpport=5010 */
-    //CS104_Slave_setLocalPort(slave, 5010);
+    CS104_Slave_setLocalPort(slave, 5010);
 
     /* Set mode to a single redundancy group
      * NOTE: library has to be compiled with CONFIG_CS104_SUPPORT_SERVER_MODE_SINGLE_REDUNDANCY_GROUP enabled (=1)
