@@ -385,6 +385,7 @@ sendbegin:
 	nexti=0;
 	readtimes=0;
 repeatread:
+	usleep(maxdelay);
 	revbyte=Socket_read(self,&framebuf[nexti],rbsize);
     printf("revbyte====================== %d  is  ",revbyte);
     if(revbyte==-1)
@@ -393,7 +394,7 @@ repeatread:
    		printf("%02x  ",framebuf[j]);
     printf("\n");
 	if(revbyte==0){
-		if(i==4)
+		if(i==3)
 			return -1;
 		switch(i){
 	   		case 2:usleep(avgdelay);
@@ -941,7 +942,7 @@ insertusedata2que(CS101_Slave slave1)
     CS101_AppLayerParameters alParams;
     CS101_ASDU newAsdu;
     InformationObject io;
-    printf("add usedata2quere!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+    printf("enter usedata2quere!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 
     alParams = CS101_Slave_getAppLayerParameters(slave1);
     newAsdu = CS101_ASDU_create(alParams, false, CS101_COT_PERIODIC,0, 1, false, false);
@@ -951,14 +952,14 @@ insertusedata2que(CS101_Slave slave1)
 			{	
 	        	if(yctable[i*BYCD+k].ischanger==1){
 					io= (InformationObject) MeasuredValueScaled_create(NULL,YC_ADD+i*BYCD+k,yctable[i*BYCD+k].ycvalue, IEC60870_QUALITY_GOOD);
-	        		printf("send yctable[%i] === %d\n",YC_ADD+i*BYCD+k,yctable[i*BYCD+k].ycvalue);
+	        		printf("add yctable[%i] === %d\n",YC_ADD+i*BYCD+k,yctable[i*BYCD+k].ycvalue);
         			CS101_ASDU_addInformationObject(newAsdu, io);
                 	InformationObject_destroy(io);
+			        asdufull=true;
 				}
 			}
-			asdufull=true;
-            if(i!=0  && (i+1)%4==0){
-		    	printf("usedata2 have cont!!!!!!!!!!!!!!!!\n");	
+            if(i!=0  && (i+1)%4==0 && asdufull==true ){
+		    	printf("send usedata2 !!!!!!!!!!!!!!!!\n");	
 			    CS101_Slave_enqueueUserDataClass2(slave1, newAsdu);
         	    CS101_ASDU_destroy(newAsdu);
         		newAsdu = CS101_ASDU_create(alParams, false, CS101_COT_PERIODIC,0, 1, false, false);
@@ -966,10 +967,10 @@ insertusedata2que(CS101_Slave slave1)
 			}
         }
 
-        if(asdufull)
+    if(asdufull)
 			CS101_Slave_enqueueUserDataClass2(slave1, newAsdu);
-
-        CS101_ASDU_destroy(newAsdu);
+    if(newAsdu)
+    	CS101_ASDU_destroy(newAsdu);
     free(alParams);
     return true;
 }
@@ -1082,9 +1083,9 @@ interrogationHandler(void* parameter, IMasterConnection connection, CS101_ASDU a
 	        	printf("add asdu  yctable[%i] === %d\n",YC_ADD+i*BYCD+k,yctable[i*BYCD+k].ycvalue);
         		CS101_ASDU_addInformationObject(newAsdu, io);
                 InformationObject_destroy(io);
+				asdufull=true;
 			}
-			asdufull=true;
-            if(i!=0  && (i+1)%4==0){
+            if(i!=0  && (i+1)%4==0 && asdufull==true){
 //		    	printf("have cont!!!!!!!!!!!!!!!!\n");	
                 IMasterConnection_sendASDU(connection, newAsdu);
         	    CS101_ASDU_destroy(newAsdu);
@@ -1097,7 +1098,8 @@ interrogationHandler(void* parameter, IMasterConnection connection, CS101_ASDU a
         if(asdufull)
 			IMasterConnection_sendASDU(connection, newAsdu);
 
-        CS101_ASDU_destroy(newAsdu);
+        if(newAsdu)
+			CS101_ASDU_destroy(newAsdu);
 
 /*	InformationObject io = (InformationObject) MeasuredValueScaled_create(NULL, 100, -1, IEC60870_QUALITY_GOOD);
 
@@ -1210,12 +1212,12 @@ counterInterrogationHandler(void* parameter, IMasterConnection connection, CS101
         	for(k=0;k<BYMD;k++)
         	{		
             	io= (InformationObject) IntegratedTotals_create((IntegratedTotals)io,YM_ADD+i*BYMD+k,(BinaryCounterReading)&ymtable[i*BYMD+k].ycvalue);
-//	        	printf("send ymtable[%i] === %d\n",YM_ADD+i*BYMD+k,ymtable[i*BYMD+k].ycvalue);
+//	        	printf("add ymtable[%i] === %d\n",YM_ADD+i*BYMD+k,ymtable[i*BYMD+k].ycvalue);
             	CS101_ASDU_addInformationObject(newAsdu, io);
             	InformationObject_destroy(io);
-        	}	
                 asdufull=true;
-                if( i!=0 && (i+1)%9==0){
+        	}	
+                if( i!=0 && (i+1)%9==0 && asdufull==true){
 		    		printf("have cont!!!!!!!!!!!!!!!!\n");	
                 	IMasterConnection_sendASDU(connection, newAsdu);
         	    	CS101_ASDU_destroy(newAsdu);
@@ -1227,9 +1229,9 @@ counterInterrogationHandler(void* parameter, IMasterConnection connection, CS101
         /*InformationObject_destroy(io);*/
 
         if(asdufull)
-		IMasterConnection_sendASDU(connection, newAsdu);
-       
-        CS101_ASDU_destroy(newAsdu);
+			IMasterConnection_sendASDU(connection, newAsdu);
+       if(newAsdu)
+        	CS101_ASDU_destroy(newAsdu);
 	
 	}else{
 	    IMasterConnection_sendACT_CON(connection, asdu, true);
@@ -1328,7 +1330,7 @@ server101()
 
     /* create a new slave/server instance with default link layer and application layer parameters */
       slave = CS101_Slave_create(port, NULL, NULL, IEC60870_LINK_LAYER_UNBALANCED);
-   // slave = CS101_Slave_create(port, NULL, NULL, IEC60870_LINK_LAYER_BALANCED);
+    //slave = CS101_Slave_create(port, NULL, NULL, IEC60870_LINK_LAYER_BALANCED);
 
     CS101_Slave_setLinkLayerAddress(slave, 1);
     CS101_Slave_setLinkLayerAddressOtherStation(slave, 1);
@@ -1374,26 +1376,26 @@ server101()
     SerialPort_open(port);
     printf("101 server running!\n");
     
-    CS101_Slave_start(slave);
+//    CS101_Slave_start(slave);
 /*
     if (slave->isRunning == false) {
         printf("Starting server failed!\n");
         goto exit_program;
     }
 */
-
+    lastMessageSent = Hal_getTimeInMs();
     while (running) {
 
         /* has to be called periodically */
-        //CS101_Slave_run(slave);
+        CS101_Slave_run(slave);
 
         /* Enqueue a measurement every second */
-        if (Hal_getTimeInMs() > (lastMessageSent + 300000)) {
+        if (Hal_getTimeInMs() > (lastMessageSent + 90000)) {
             insertusedata2que(slave);
             lastMessageSent = Hal_getTimeInMs();
         }
 
-        Thread_sleep(300);
+       // Thread_sleep(300);
     }
 
     CS101_Slave_stop(slave);
